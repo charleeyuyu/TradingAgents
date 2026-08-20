@@ -43,6 +43,29 @@ TODAY = datetime.now(TZ).strftime("%Y-%m-%d")
 SIGNAL_CN = {"BUY": "🟢 买入", "SELL": "🔴 卖出", "HOLD": "🟡 观望"}
 
 
+def _as_text(v: Any) -> str:
+    """把 LLM 返回的 content 归一化成字符串。
+
+    langchain 的 AIMessage.content 可能是 str，也可能是 [{"type":"text","text":...}, ...]
+    这种内容块列表。第一版假设了前者，结果在排版那步炸了。
+    """
+    if v is None:
+        return ""
+    if isinstance(v, str):
+        return v
+    if isinstance(v, list):
+        parts = []
+        for b in v:
+            if isinstance(b, str):
+                parts.append(b)
+            elif isinstance(b, dict):
+                parts.append(str(b.get("text") or b.get("content") or ""))
+        return "\n".join(p for p in parts if p)
+    if isinstance(v, dict):
+        return str(v.get("text") or v.get("content") or v)
+    return str(v)
+
+
 def log(msg: str) -> None:
     print(f"[{datetime.now(TZ).strftime('%H:%M:%S')}] {msg}", flush=True)
 
@@ -76,17 +99,27 @@ def analyze_all(tickers: List[str]) -> List[Dict[str, Any]]:
     config["max_risk_discuss_rounds"] = RISK_ROUNDS
 
     log(f"模型: {DEEP_MODEL} / {QUICK_MODEL}，辩论轮数: {DEBATE_ROUNDS}，风控轮数: {RISK_ROUNDS}")
-    graph = TradingAgentsGraph(debug=False, config=config)
+    # 去掉 social：Reddit 对 GitHub Actions 的 IP 返回 429，重试也拿不到数据，纯浪费时间
+    graph = TradingAgentsGraph(
+        debug=False,
+        config=config,
+        selected_analysts=("market", "news", "fundamentals"),
+    )
 
     results: List[Dict[str, Any]] = []
     for i, ticker in enumerate(tickers, 1):
         log(f"({i}/{len(tickers)}) 开始分析 {ticker} ...")
         try:
             state, decision = graph.propagate(ticker, TODAY)
-            raw = state.get("final_trade_decision", "") or str(decision or "")
+            raw = _as_text(state.get("final_trade_decision", ""))
+            # propagate 的第二个返回值已经是 process_signal 处理过的结论，优先用它；
+            # 取不到再退回全文正则。第一版只用了全文，结果全是 UNKNOWN。
+            sig = extract_signal(_as_text(decision))
+            if sig == "UNKNOWN":
+                sig = extract_signal(raw)
             results.append({
                 "ticker": ticker,
-                "signal": extract_signal(raw),
+                "signal": sig,
                 "raw": raw,
                 "error": None,
             })
@@ -161,7 +194,7 @@ def to_plain_chinese(results: List[Dict[str, Any]]) -> Optional[str]:
         )
         llm = ChatGoogleGenerativeAI(model=DEEP_MODEL, google_api_key=GOOGLE_API_KEY)
         resp = llm.invoke(PLAIN_PROMPT.format(payload=payload))
-        return getattr(resp, "content", None) or str(resp)
+        return _as_text(getattr(resp, "content", None)) or str(resp)
     except Exception as exc:  # noqa: BLE001
         log(f"翻译步骤失败: {type(exc).__name__}: {exc}")
         traceback.print_exc()
@@ -210,7 +243,7 @@ def build_email(results: List[Dict[str, Any]], plain: Optional[str]) -> str:
 def markdown_to_html(md: str) -> str:
     """极简 Markdown -> HTML，只处理标题、粗体、分隔线、段落。"""
     html: List[str] = []
-    for line in md.split("\n"):
+    for line in _as_text(md).split("\n"):
         s = line.rstrip()
         if not s:
             continue
