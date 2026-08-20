@@ -1,0 +1,67 @@
+name: 每日美股简报
+
+on:
+  # 美股盘前。UTC 12:20 = 美东 8:20（夏令时）/ 7:20（冬令时）
+  # 比旧方案提前 30 分钟，因为多 Agent 流程慢很多
+  schedule:
+    - cron: '20 12 * * 1-5'
+
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: '股票代码（英文逗号分隔，留空用默认）'
+        required: false
+        default: 'NVDA,AAPL,TSLA'
+      debate_rounds:
+        description: '辩论轮数（1 最省，2 更充分但翻倍烧钱）'
+        required: false
+        default: '1'
+
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 设置 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: 生成并发送简报
+        env:
+          # 模型
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          QUICK_MODEL: ${{ vars.QUICK_MODEL || 'gemini-3-flash-preview' }}
+          DEEP_MODEL:  ${{ vars.DEEP_MODEL  || 'gemini-3-flash-preview' }}
+          # 邮件
+          EMAIL_SENDER:   ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_TO:       ${{ secrets.EMAIL_TO }}
+          # 股票与深度
+          TICKERS: ${{ github.event.inputs.tickers || vars.TICKERS || 'NVDA,AAPL,TSLA' }}
+          DEBATE_ROUNDS: ${{ github.event.inputs.debate_rounds || '1' }}
+          RISK_ROUNDS: '1'
+          # TradingAgents 自身路径
+          TRADINGAGENTS_RESULTS_DIR: ${{ github.workspace }}/ta_logs
+        run: python scripts/daily_brief.py
+
+      - name: 上传报告与日志
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: brief-${{ github.run_number }}
+          path: |
+            out/
+            ta_logs/
+          retention-days: 30
+          if-no-files-found: warn
