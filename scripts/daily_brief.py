@@ -42,6 +42,23 @@ TODAY = datetime.now(TZ).strftime("%Y-%m-%d")
 
 SIGNAL_CN = {"BUY": "🟢 买入", "SELL": "🔴 卖出", "HOLD": "🟡 观望"}
 
+# 代码 -> 中文名（模型猜名字会出错：SPCX 曾被猜成"某科技指数基金"，实际是 SpaceX）
+TICKER_NAMES = {
+    "QQQ": "纳斯达克100指数ETF（Invesco QQQ Trust）",
+    "MSFT": "微软（Microsoft）",
+    "MU": "美光科技（Micron Technology）",
+    "SPCX": "SpaceX（Space Exploration Technologies Corp.，2026年6月上市的太空公司，不是基金）",
+    "NVDA": "英伟达（NVIDIA）",
+    "TSM": "台积电（Taiwan Semiconductor，美股ADR）",
+    "SKHY": "SK海力士（SK hynix，美股ADR）",
+    "AAPL": "苹果（Apple）",
+    "INTC": "英特尔（Intel）",
+    "AMZN": "亚马逊（Amazon）",
+    "GOOGL": "谷歌（Alphabet）",
+    "META": "Meta（原Facebook）",
+    "TSLA": "特斯拉（Tesla）",
+}
+
 
 def _as_text(v: Any) -> str:
     """把 LLM 返回的 content 归一化成字符串。
@@ -157,31 +174,43 @@ PLAIN_PROMPT = """你在给一位**完全不懂证券**的普通人写今天的�
    - 成交量 = "买卖的活跃程度"
    宁可说得笨一点，也不许为了好懂而说得不准。
 
-2. **每只股票写 2-4 句话**，必须说清楚三件事：
+2. **公司名必须用我在每段开头给出的名称,不许自己猜、自己改。**
+   代码后面标注的名字就是正确答案,照用。
+
+3. **每只股票写 2-4 句话**，必须说清楚三件事：
    - 结论是买、卖还是先别动
    - **为什么** —— 尤其要说清楚是因为什么消息、什么事件、还是单纯因为股价走势
    - 有多大把握 —— 如果分析里本身就有分歧或数据不足，如实说"这个判断不太有把握"
 
-3. **不要编造。** 原文里没提到的消息、数字、事件，一律不许出现。原文说不确定的，你也要说不确定。
+4. **不要编造。** 原文里没提到的消息、数字、事件，一律不许出现。原文说不确定的，你也要说不确定。
 
-4. **不要给仓位建议**（不要说买多少、几成仓）。他还没开始建仓，只需要方向。
+5. **不要给仓位建议**（不要说买多少、几成仓）。他还没开始建仓，只需要方向。
 
-5. 开头写一段 2-3 句的「今天大盘什么情况」，如果原文信息不足以判断大盘，就直说信息不足。
+6. 开头写一段 2-3 句的「今天大盘什么情况」，如果原文信息不足以判断大盘，就直说信息不足。
 
-6. **价位必须有出处。** 如果原始分析里明确写了具体价位（支撑位、压力位、目标价、建议入场或离场区间），单独列出来：
+7. **价位必须有出处。** 如果原始分析里明确写了具体价位（支撑位、压力位、目标价、建议入场或离场区间），单独列出来：
    - **只能引用原文里已经出现过的数字。一个都不许自己算、自己推、自己估。**
    - 每个价位后面跟一句大白话解释它是什么意思。
      比如不要写"支撑位 210"，要写"210 美元附近是最近两个月里股价几次跌到就被买回去的位置"。
    - 原文如果根本没给具体价位，就老实写"这次分析没有给出具体价位"。
      **不许用"大约""附近""左右"这类词把没有的数字糊弄出来。**
-   - **参考价位这一栏只描述"这个价位是什么"，不描述"该做什么"。**
-     这一栏里**禁止出现**下列词：买入、卖出、加仓、减仓、清仓、离场、抄底、止损、锁定收益、
-     分批、应该、建议在、可以在、就该。
-     ✅ 正确写法："分析认为 207 是个关键位置，股价前几次跌到附近都停住了"
-     ❌ 错误写法："建议从 207 开始分批买入" / "跌破 194.5 应该卖出离场" / "在 351 卖出锁定收益"
-     操作倾向已经在上面那段话里说过了，这一栏只给位置和它的含义，不要重复成指令。
+   - **参考价位这一栏,每一条都必须写成「这个价位是什么」,不能写成「读者该做什么」。**
 
-7. 结尾写一句提醒：这些是 AI 基于公开信息的推理，不是经过验证的策略信号；
+     判断标准很简单:把这条读一遍,如果它在**指示读者采取动作**,就是错的,必须改写。
+     不要试图换个词绕过去——换成"撤退""放弃""离场""落袋""考虑止损"同样是错的,
+     因为问题不在用了哪个词,而在这句话的**功能**是发指令。
+
+     ✅ "207 美元:股价前几次跌到这个位置附近就停住并回升了"
+     ✅ "194.5 美元:分析认为跌破这里意味着长期上涨趋势被破坏"
+     ✅ "351.92 美元:股价前几次涨到这里就上不去了"
+     ❌ "建议从 207 开始分批买入"
+     ❌ "跌破 194.5 应该卖出离场"
+     ❌ "万一涨破 367 再考虑止损"
+     ❌ "跌破 238 就该撤退"
+
+     操作倾向在上面那段结论里已经说过了。这一栏只交代位置和它的含义,不要再说一遍该干什么。
+
+8. 结尾写一句提醒：这些是 AI 基于公开信息的推理，不是经过验证的策略信号；
    价位只是分析里的参考位置，不是保证会到、也不是到了就该动手。
 
 ## 输出格式（严格遵守，用 Markdown）
@@ -215,7 +244,8 @@ def to_plain_chinese(results: List[Dict[str, Any]]) -> Optional[str]:
         from langchain_google_genai import ChatGoogleGenerativeAI
 
         payload = "\n\n".join(
-            f"===== {r['ticker']} （系统信号：{r['signal']}）=====\n{r['raw'][:6000]}"
+            f"===== {r['ticker']}｜{TICKER_NAMES.get(r['ticker'], r['ticker'])}"
+            f"（系统信号：{r['signal']}）=====\n{r['raw'][:6000]}"
             for r in ok
         )
         llm = ChatGoogleGenerativeAI(model=DEEP_MODEL, google_api_key=GOOGLE_API_KEY)
@@ -229,17 +259,50 @@ def to_plain_chinese(results: List[Dict[str, Any]]) -> Optional[str]:
 
 # ---------------------------------------------------------------- 邮件
 
+def count_from_plain(plain: Optional[str]) -> Optional[Dict[str, int]]:
+    """从正文的小标题里数红绿灯。
+
+    第一版的 bug：顶部计数来自 extract_signal 的正则，正文红绿灯来自模型，
+    两个来源各说各话——出现过顶部"买入 5 / 异常 6"、正文却是 11 个绿灯的情况。
+    现在顶部直接数正文，保证两者一致（同一个真相来源）。
+    """
+    if not plain:
+        return None
+    c = {"BUY": 0, "HOLD": 0, "SELL": 0}
+    for line in _as_text(plain).split("\n"):
+        t = line.strip()
+        if not t.startswith("#"):
+            continue
+        if "🟢" in t:
+            c["BUY"] += 1
+        elif "🔴" in t:
+            c["SELL"] += 1
+        elif "🟡" in t or "⚪" in t:
+            c["HOLD"] += 1
+    return c if sum(c.values()) else None
+
+
 def build_email(results: List[Dict[str, Any]], plain: Optional[str]) -> str:
-    counts = {"BUY": 0, "SELL": 0, "HOLD": 0, "ERROR": 0, "UNKNOWN": 0}
-    for r in results:
-        counts[r["signal"]] = counts.get(r["signal"], 0) + 1
+    # 顶部计数优先数正文，数不出来（翻译失败）才退回信号解析
+    counts = count_from_plain(plain)
+    from_body = counts is not None
+    if counts is None:
+        counts = {"BUY": 0, "HOLD": 0, "SELL": 0}
+        for r in results:
+            if r["signal"] in counts:
+                counts[r["signal"]] += 1
+
+    # 只有真正抛异常、正文里根本没有的，才算"未完成"
+    n_failed = sum(1 for r in results if r["error"])
 
     head = (
         f"<p style='font-size:15px'><b>{TODAY} 美股简报</b><br>"
         f"{len(results)} 只 &nbsp; 🟢买入 {counts['BUY']} &nbsp; 🟡观望 {counts['HOLD']} &nbsp; 🔴卖出 {counts['SELL']}"
     )
-    if counts["ERROR"] or counts["UNKNOWN"]:
-        head += f" &nbsp; ⚠️异常 {counts['ERROR'] + counts['UNKNOWN']}"
+    if n_failed:
+        head += f" &nbsp; ⚠️未完成 {n_failed}"
+    if not from_body:
+        head += " &nbsp;<span style='color:#b26a00'>（信号解析降级，以正文为准）</span>"
     head += "</p><hr>"
 
     if plain:
